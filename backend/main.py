@@ -18,13 +18,12 @@ app = FastAPI(
 )
 
 # ── CORS ───────────────────────────────────────────────────────────────────────
-# Always allow local dev servers. In production, also allow the deployed
-# frontend URL plus any origins passed via the FRONTEND_URL env var on Render.
+# Always allow local frontends (any port on localhost / 127.0.0.1). In production,
+# also allow the deployed frontend URL plus any origins passed via the
+# FRONTEND_URL env var on Render.
+_local_origin_regex = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 _allowed_origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "https://code-for-purpose-ynou.onrender.com",  # deployed frontend
+    "https://melodic-melba-1010c7.netlify.app",  # deployed frontend
 ]
 
 # Allow overriding / adding more origins via env var (comma-separated)
@@ -38,6 +37,7 @@ if _extra:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
+    allow_origin_regex=_local_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

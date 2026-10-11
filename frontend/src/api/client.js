@@ -1,6 +1,10 @@
-const DEFAULT_PROD_API_URL = 'https://code-for-purpose-ynou.onrender.com';
+// Pick the backend from where the app is opened: on this machine (localhost)
+// talk to the local backend, anywhere else talk to the deployed backend.
+const LOCAL_API_URL = 'http://localhost:8000';
+const DEPLOYED_API_URL = 'https://datalens-p3he.onrender.com';
+const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
 const configuredBaseUrl = (import.meta.env.VITE_API_URL || '').trim();
-const BASE = (configuredBaseUrl || (import.meta.env.PROD ? DEFAULT_PROD_API_URL : '')).replace(/\/$/, '');
+const BASE = (isLocalHost ? LOCAL_API_URL : (configuredBaseUrl || DEPLOYED_API_URL)).replace(/\/$/, '');
 const JOB_POLL_INTERVAL_MS = 700;
 const JOB_TIMEOUT_MS = 120000;
 
