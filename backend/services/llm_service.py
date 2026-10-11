@@ -1,6 +1,6 @@
 """
 LLM Service — Groq-powered NL→SQL generation and result explanation.
-Uses llama3-70b-8192 for fast, accurate responses.
+Uses openai/gpt-oss-120b by default (override with GROQ_MODEL).
 Schema + sample (≤5 rows) are sent — never the full dataset.
 
 NEW:
@@ -19,7 +19,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-MODEL = "llama-3.3-70b-versatile"
+MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+_REASONING_TOKEN_HEADROOM = 1024
+
+
+def _chat_completion(**kwargs: Any):
+    """
+    Call Groq chat completions. gpt-oss models spend completion tokens on
+    reasoning, so keep effort low and add headroom so the answer isn't cut off.
+    """
+    if kwargs.get("model", "").startswith("openai/gpt-oss"):
+        kwargs.setdefault("reasoning_effort", "low")
+        kwargs["max_tokens"] = kwargs.get("max_tokens", 0) + _REASONING_TOKEN_HEADROOM
+    return _client.chat.completions.create(**kwargs)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -227,7 +239,7 @@ class SemanticLayer:
         )
 
         try:
-            response = _client.chat.completions.create(
+            response = _chat_completion(
                 model=MODEL,
                 messages=[
                     {
@@ -324,7 +336,7 @@ def generate_sql(
     messages.append({"role": "user", "content": f"Question: {enriched_question}"})
 
     # ── 3. Call LLM ───────────────────────────────────────────────────────────
-    response = _client.chat.completions.create(
+    response = _chat_completion(
         model=MODEL,
         messages=messages,
         temperature=0.05,
@@ -383,7 +395,7 @@ def review_sql(
     )
 
     try:
-        response = _client.chat.completions.create(
+        response = _chat_completion(
             model=MODEL,
             messages=[
                 {
@@ -471,7 +483,7 @@ def repair_sql(
         messages.append(h)
     messages.append({"role": "user", "content": user_prompt})
 
-    response = _client.chat.completions.create(
+    response = _chat_completion(
         model=MODEL,
         messages=messages,
         temperature=0.05,
@@ -524,7 +536,7 @@ def explain_result(
     )
 
     try:
-        response = _client.chat.completions.create(
+        response = _chat_completion(
             model=MODEL,
             messages=[
                 {
@@ -567,7 +579,7 @@ def suggest_questions(
     schema_lines = "\n".join(f"  - {c['name']} ({c['type']})" for c in schema)
     sample_str = json.dumps(_serialise(sample[:3]), indent=2)
 
-    response = _client.chat.completions.create(
+    response = _chat_completion(
         model=MODEL,
         messages=[
             {

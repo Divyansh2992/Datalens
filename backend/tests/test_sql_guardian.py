@@ -130,8 +130,8 @@ def test_guardian_repairs_and_executes_successfully(client, seeded_dataset, monk
     assert any("repaired SQL candidate after dry-run failure" in line for line in body["guardian_log"])
 
 
-def test_guardian_semantic_fail_still_calls_repair_with_fixed_sql_hint(client, seeded_dataset, monkeypatch):
-    repair_calls = {"count": 0, "failed_sql": "", "reason": ""}
+def test_guardian_semantic_fail_accepts_valid_fixed_sql_without_repair(client, seeded_dataset, monkeypatch):
+    repair_calls = {"count": 0}
     review_calls = {"count": 0}
 
     monkeypatch.setattr(
@@ -146,6 +146,58 @@ def test_guardian_semantic_fail_still_calls_repair_with_fixed_sql_hint(client, s
                 "verdict": "FAIL",
                 "reason": "Wrong aggregation logic.",
                 "fixed_sql": 'SELECT AVG("y") AS "avg_y" FROM data',
+            }
+        return {
+            "verdict": "PASS",
+            "reason": "Looks aligned after repair.",
+            "fixed_sql": "",
+        }
+
+    monkeypatch.setattr(query_router.llm_service, "review_sql", _review_stub)
+
+    def _repair_stub(*_args, **_kwargs):
+        repair_calls["count"] += 1
+        return 'SELECT AVG("y") AS "avg_y" FROM data'
+
+    monkeypatch.setattr(query_router.llm_service, "repair_sql", _repair_stub)
+    monkeypatch.setattr(
+        query_router.llm_service,
+        "explain_result",
+        lambda *_args, **_kwargs: {
+            "explanation": "Average computed.",
+            "insights": [],
+            "why_analysis": "",
+        },
+    )
+
+    response = client.post("/query", json=_payload(seeded_dataset, question="What is average y?"))
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["guardian_passed"] is True
+    assert body["error"] is None
+    assert repair_calls["count"] == 0
+    assert body["sql"] == 'SELECT AVG("y") AS "avg_y" FROM data'
+    assert any("Verifier supplied a corrected SQL candidate" in line for line in body["guardian_log"])
+
+
+def test_guardian_semantic_fail_uses_repair_when_fixed_sql_is_unsafe(client, seeded_dataset, monkeypatch):
+    repair_calls = {"count": 0, "failed_sql": "", "reason": ""}
+    review_calls = {"count": 0}
+
+    monkeypatch.setattr(
+        query_router.llm_service,
+        "generate_sql",
+        lambda *_args, **_kwargs: 'SELECT "x" FROM data',
+    )
+
+    def _review_stub(*_args, **_kwargs):
+        review_calls["count"] += 1
+        if review_calls["count"] == 1:
+            return {
+                "verdict": "FAIL",
+                "reason": "Wrong aggregation logic.",
+                "fixed_sql": 'SELECT AVG("y") AS "avg_y" FROM data -- unsafe',
             }
         return {
             "verdict": "PASS",
@@ -179,8 +231,8 @@ def test_guardian_semantic_fail_still_calls_repair_with_fixed_sql_hint(client, s
     assert body["guardian_passed"] is True
     assert body["error"] is None
     assert repair_calls["count"] == 1
-    assert repair_calls["failed_sql"] == 'SELECT AVG("y") AS "avg_y" FROM data'
-    assert "Verifier suggested SQL" in repair_calls["reason"]
+    assert repair_calls["failed_sql"] == 'SELECT AVG("y") AS "avg_y" FROM data -- unsafe'
+    assert "Validation error" in repair_calls["reason"]
     assert body["sql"] == 'SELECT AVG("y") AS "avg_y" FROM data'
 
 

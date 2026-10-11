@@ -33,11 +33,14 @@ if defined LOCAL_JAVA_HOME (
 )
 
 echo [1/2] Starting FastAPI backend on port 8000...
-if defined LOCAL_JAVA_HOME (
-    start "Talk-to-Data Backend" cmd /k "cd backend && set \"JAVA_HOME=%LOCAL_JAVA_HOME%\" && set \"PATH=%JAVA_HOME%\bin;%PATH%\" && (py -3.12 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 || uvicorn main:app --reload --host 0.0.0.0 --port 8000)"
-) else (
-    start "Talk-to-Data Backend" cmd /k "cd backend && (py -3.12 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 || uvicorn main:app --reload --host 0.0.0.0 --port 8000)"
-)
+if defined LOCAL_JAVA_HOME goto start_backend_with_java
+start "Talk-to-Data Backend" cmd /k "cd backend && py -3.12 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 || uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+goto backend_started
+
+:start_backend_with_java
+start "Talk-to-Data Backend" cmd /k "cd backend && set \"JAVA_HOME=%LOCAL_JAVA_HOME%\" && set \"PATH=%LOCAL_JAVA_HOME%\bin;%PATH%\" && py -3.12 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000 || uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+
+:backend_started
 
 timeout /t 3 /nobreak >nul
 

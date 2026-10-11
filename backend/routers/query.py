@@ -161,10 +161,20 @@ async def run_query(req: QueryRequest) -> QueryResponse:
             conn.execute("CREATE TABLE data AS SELECT * FROM spark_cleaned_df")
 
             rows, columns = query_engine.execute_query(file_path, sql, conn=conn)
-            log = [
-                "Processed using PySpark (scalable mode)",
-                f"Rows processed in Spark pipeline: {spark_result['rows_processed']}",
-            ]
+            execution_mode = str(spark_result.get("execution_mode", "spark"))
+            if execution_mode == "spark":
+                log = [
+                    "Processed using PySpark (scalable mode)",
+                    f"Rows processed in Spark pipeline: {spark_result['rows_processed']}",
+                ]
+            else:
+                fallback_reason = str(spark_result.get("fallback_reason", "")).strip()
+                log = [
+                    "Scalable mode fell back to local pandas preprocessing because Spark worker startup failed.",
+                    f"Rows processed in fallback pipeline: {spark_result['rows_processed']}",
+                ]
+                if fallback_reason:
+                    log.append(f"Spark fallback reason: {fallback_reason}")
         else:
             rows, columns = query_engine.execute_query(file_path, sql)
             log = ["ℹ️ Results are based on raw data (no preprocessing applied)."]
@@ -414,24 +424,44 @@ def _run_sql_guardian(
                 }
 
             semantic_reason = f"Semantic verifier failure: {reason}"
-            semantic_failed_sql = candidate_sql
 
             if fixed_sql:
-                semantic_failed_sql = fixed_sql
-                semantic_reason += f" | Verifier suggested SQL: {fixed_sql}"
-                log.append("Verifier supplied SQL hint; forwarding to Groq repair.")
+                try:
+                    llm_service.validate_sql(fixed_sql)
+                    candidate_sql = fixed_sql
+                    log.append("Verifier supplied a corrected SQL candidate; re-running Guardian checks.")
+                    _add_stage(
+                        attempt_entry,
+                        "repair",
+                        "pass",
+                        "Verifier-supplied SQL passed safety checks and was accepted directly.",
+                        {"fixed_sql": fixed_sql},
+                    )
+                    continue
+                except Exception as exc:
+                    semantic_reason += f" | Verifier suggested SQL: {fixed_sql} | Validation error: {exc}"
+                    log.append("Verifier supplied SQL hint, but it failed safety validation; forwarding to repair.")
+                    _add_stage(
+                        attempt_entry,
+                        "repair",
+                        "info",
+                        "Verifier suggested SQL failed safety validation and was forwarded to repair.",
+                        {"fixed_sql": fixed_sql, "error": str(exc)},
+                    )
+            else:
+                log.append("Semantic review failed without a corrected SQL hint; forwarding to repair.")
                 _add_stage(
                     attempt_entry,
                     "repair",
                     "info",
-                    "Verifier suggested SQL was forwarded to repair model.",
+                    "No verifier SQL hint was available, so the candidate was forwarded to repair.",
                 )
 
             repaired_sql = _repair_with_feedback(
                 schema=schema,
                 sample=sample,
                 question=question,
-                failed_sql=semantic_failed_sql,
+                failed_sql=fixed_sql or candidate_sql,
                 reason=semantic_reason,
                 history=history,
             )
