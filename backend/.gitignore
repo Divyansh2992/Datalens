@@ -11,6 +11,7 @@ __pycache__/
 .env
 .env.*
 *.env
+!.env.example
 
 # Jupyter
 .ipynb_checkpoints/
@@ -49,6 +50,3 @@ build/
 # Ignore virtual environments
 venv/
 .venv/
-
-# Ignore runtime files
-runtime.txt
